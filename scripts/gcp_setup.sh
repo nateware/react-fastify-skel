@@ -23,6 +23,8 @@ GITHUB_ORG="nateware"    # or personal username
 GITHUB_REPO="react-fastify-skel"
 DOMAIN_STAGING="app.staging.nojungle.com"      # optional: e.g. staging.myapp.example.com
 DOMAIN_PRODUCTION="app.nojungle.com"           # optional: e.g. myapp.example.com
+API_DOMAIN_STAGING="api.staging.nojungle.com"  # optional: custom domain for Cloud Run backend
+API_DOMAIN_PRODUCTION="api.nojungle.com"       # optional: custom domain for Cloud Run backend
 # ──────────────────────────────────────────────────────────────
 
 ENV="${1:?Usage: $0 <staging|production>}"
@@ -37,6 +39,8 @@ PROJECT_ID_VAR="PROJECT_ID_$(echo "$ENV" | tr '[:lower:]' '[:upper:]')"
 PROJECT_ID="${!PROJECT_ID_VAR}"
 DOMAIN_VAR="DOMAIN_$(echo "$ENV" | tr '[:lower:]' '[:upper:]')"
 DOMAIN="${!DOMAIN_VAR}"
+API_DOMAIN_VAR="API_DOMAIN_$(echo "$ENV" | tr '[:lower:]' '[:upper:]')"
+API_DOMAIN="${!API_DOMAIN_VAR}"
 
 SA_NAME="github-deploy"
 SA_EMAIL="${SA_NAME}@${PROJECT_ID}.iam.gserviceaccount.com"
@@ -102,6 +106,7 @@ fi
 # ─── Enable APIs ──────────────────────────────────────────────
 echo "==> Enabling required APIs..."
 gcloud services enable \
+  --project="$PROJECT_ID" \
   run.googleapis.com \
   artifactregistry.googleapis.com \
   compute.googleapis.com \
@@ -115,8 +120,10 @@ gcloud services enable \
 # ─── Artifact Registry ────────────────────────────────────────
 echo "==> Creating Artifact Registry repository..."
 gcloud artifacts repositories describe "$AR_REPO" \
+  --project="$PROJECT_ID" \
   --location="$REGION" --format="value(name)" 2>/dev/null || \
 gcloud artifacts repositories create "$AR_REPO" \
+  --project="$PROJECT_ID" \
   --repository-format=docker \
   --location="$REGION" \
   --description="Docker images"
@@ -125,15 +132,19 @@ gcloud artifacts repositories create "$AR_REPO" \
 echo "==> Setting up Workload Identity Federation..."
 
 gcloud iam workload-identity-pools describe "$WIF_POOL" \
+  --project="$PROJECT_ID" \
   --location="global" --format="value(name)" 2>/dev/null || \
 gcloud iam workload-identity-pools create "$WIF_POOL" \
+  --project="$PROJECT_ID" \
   --location="global" \
   --display-name="GitHub Actions"
 
 gcloud iam workload-identity-pools providers describe "$WIF_PROVIDER" \
+  --project="$PROJECT_ID" \
   --workload-identity-pool="$WIF_POOL" \
   --location="global" --format="value(name)" 2>/dev/null || \
 gcloud iam workload-identity-pools providers create-oidc "$WIF_PROVIDER" \
+  --project="$PROJECT_ID" \
   --workload-identity-pool="$WIF_POOL" \
   --location="global" \
   --issuer-uri="https://token.actions.githubusercontent.com" \
@@ -142,8 +153,10 @@ gcloud iam workload-identity-pools providers create-oidc "$WIF_PROVIDER" \
 
 # ─── Service Account ──────────────────────────────────────────
 echo "==> Creating service account..."
-if ! gcloud iam service-accounts describe "$SA_EMAIL" --format="value(email)" >/dev/null 2>&1; then
+if ! gcloud iam service-accounts describe "$SA_EMAIL" \
+  --project="$PROJECT_ID" --format="value(email)" >/dev/null 2>&1; then
   gcloud iam service-accounts create "$SA_NAME" \
+    --project="$PROJECT_ID" \
     --display-name="GitHub Actions Deploy"
   echo "   Waiting for service account to propagate..."
   sleep 10
@@ -164,6 +177,7 @@ done
 
 echo "==> Binding WIF to service account..."
 gcloud iam service-accounts add-iam-policy-binding "$SA_EMAIL" \
+  --project="$PROJECT_ID" \
   --role="roles/iam.workloadIdentityUser" \
   --member="principalSet://iam.googleapis.com/projects/${PROJECT_NUMBER}/locations/global/workloadIdentityPools/${WIF_POOL}/attribute.repository/${GITHUB_ORG}/${GITHUB_REPO}" \
   --quiet
@@ -171,7 +185,7 @@ gcloud iam service-accounts add-iam-policy-binding "$SA_EMAIL" \
 # ─── GCS Bucket (frontend SPA) ────────────────────────────────
 echo "==> Creating GCS bucket for frontend..."
 if ! gsutil ls -b "gs://${BUCKET}" 2>/dev/null; then
-  gsutil mb -l "$REGION" "gs://${BUCKET}"
+  gsutil mb -p "$PROJECT_ID" -l "$REGION" "gs://${BUCKET}"
 fi
 
 echo "==> Configuring bucket for static website hosting..."
@@ -180,55 +194,71 @@ gsutil iam ch allUsers:objectViewer "gs://${BUCKET}"
 
 # ─── Cloud CDN + Load Balancer ─────────────────────────────────
 echo "==> Creating backend bucket for CDN..."
-gcloud compute backend-buckets describe "$BACKEND_BUCKET_NAME" 2>/dev/null || \
+gcloud compute backend-buckets describe "$BACKEND_BUCKET_NAME" \
+  --project="$PROJECT_ID" 2>/dev/null || \
 gcloud compute backend-buckets create "$BACKEND_BUCKET_NAME" \
+  --project="$PROJECT_ID" \
   --gcs-bucket-name="$BUCKET" \
   --enable-cdn
 
 echo "==> Creating URL map..."
-gcloud compute url-maps describe "$URL_MAP_NAME" 2>/dev/null || \
+gcloud compute url-maps describe "$URL_MAP_NAME" \
+  --project="$PROJECT_ID" 2>/dev/null || \
 gcloud compute url-maps create "$URL_MAP_NAME" \
+  --project="$PROJECT_ID" \
   --default-backend-bucket="$BACKEND_BUCKET_NAME"
 
 if [ -n "$DOMAIN" ]; then
   echo "==> Creating managed SSL certificate..."
-  gcloud compute ssl-certificates describe "$CERT_NAME" 2>/dev/null || \
+  gcloud compute ssl-certificates describe "$CERT_NAME" \
+    --project="$PROJECT_ID" 2>/dev/null || \
   gcloud compute ssl-certificates create "$CERT_NAME" \
+    --project="$PROJECT_ID" \
     --domains="$DOMAIN" \
     --global
 
   echo "==> Creating HTTPS proxy..."
-  gcloud compute target-https-proxies describe "$PROXY_NAME" 2>/dev/null || \
+  gcloud compute target-https-proxies describe "$PROXY_NAME" \
+    --project="$PROJECT_ID" 2>/dev/null || \
   gcloud compute target-https-proxies create "$PROXY_NAME" \
+    --project="$PROJECT_ID" \
     --url-map="$URL_MAP_NAME" \
     --ssl-certificates="$CERT_NAME" \
     --global
 
   echo "==> Reserving static IP..."
-  gcloud compute addresses describe "$IP_NAME" --global 2>/dev/null || \
-  gcloud compute addresses create "$IP_NAME" --global
+  gcloud compute addresses describe "$IP_NAME" \
+    --project="$PROJECT_ID" --global 2>/dev/null || \
+  gcloud compute addresses create "$IP_NAME" \
+    --project="$PROJECT_ID" --global
 
   echo "==> Creating forwarding rule..."
-  gcloud compute forwarding-rules describe "$FWD_RULE_NAME" --global 2>/dev/null || \
+  gcloud compute forwarding-rules describe "$FWD_RULE_NAME" \
+    --project="$PROJECT_ID" --global 2>/dev/null || \
   gcloud compute forwarding-rules create "$FWD_RULE_NAME" \
+    --project="$PROJECT_ID" \
     --global \
     --target-https-proxy="$PROXY_NAME" \
     --address="$IP_NAME" \
     --ports=443
 
-  STATIC_IP=$(gcloud compute addresses describe "$IP_NAME" --global --format="value(address)")
+  STATIC_IP=$(gcloud compute addresses describe "$IP_NAME" \
+    --project="$PROJECT_ID" --global --format="value(address)")
 
-  # ─── Cloud DNS ────────────────────────────────────────────
+  # ─── Cloud DNS (frontend) ──────────────────────────────────
   DNS_ZONE_NAME="frontend-dns-${ENV}"
 
   echo "==> Creating Cloud DNS zone for ${DOMAIN}..."
-  gcloud dns managed-zones describe "$DNS_ZONE_NAME" 2>/dev/null || \
+  gcloud dns managed-zones describe "$DNS_ZONE_NAME" \
+    --project="$PROJECT_ID" 2>/dev/null || \
   gcloud dns managed-zones create "$DNS_ZONE_NAME" \
+    --project="$PROJECT_ID" \
     --dns-name="${DOMAIN}." \
     --description="Frontend DNS (${ENV})"
 
   echo "==> Creating A record pointing to load balancer..."
   EXISTING_A=$(gcloud dns record-sets list \
+    --project="$PROJECT_ID" \
     --zone="$DNS_ZONE_NAME" \
     --name="${DOMAIN}." \
     --type=A \
@@ -236,6 +266,7 @@ if [ -n "$DOMAIN" ]; then
 
   if [ -z "$EXISTING_A" ]; then
     gcloud dns record-sets create "${DOMAIN}." \
+      --project="$PROJECT_ID" \
       --zone="$DNS_ZONE_NAME" \
       --type="A" \
       --ttl=300 \
@@ -243,21 +274,96 @@ if [ -n "$DOMAIN" ]; then
   else
     echo "   A record already exists, updating..."
     gcloud dns record-sets update "${DOMAIN}." \
+      --project="$PROJECT_ID" \
       --zone="$DNS_ZONE_NAME" \
       --type="A" \
       --ttl=300 \
       --rrdatas="$STATIC_IP"
   fi
 
-  NAMESERVERS=$(gcloud dns managed-zones describe "$DNS_ZONE_NAME" --format="value(nameServers)")
+  FRONTEND_NS=$(gcloud dns managed-zones describe "$DNS_ZONE_NAME" \
+    --project="$PROJECT_ID" --format="value(nameServers)")
   echo ""
-  echo "   Static IP: ${STATIC_IP}"
+  echo "   Frontend static IP: ${STATIC_IP}"
   echo ""
-  echo "   Update your domain registrar's nameservers to:"
-  echo "   ${NAMESERVERS}" | tr ';' '\n' | sed 's/^/   /'
+  echo "   Update your domain registrar's NS records for ${DOMAIN} to:"
+  echo "   ${FRONTEND_NS}" | tr ';' '\n' | sed 's/^/   /'
 else
   echo "   (No DOMAIN_$(echo "$ENV" | tr '[:lower:]' '[:upper:]') set — skipping HTTPS proxy.)"
   echo "   Set it in this script and re-run to create SSL + LB."
+fi
+
+# ─── Cloud Run (backend placeholder) ─────────────────────────
+# Create the Cloud Run service with a placeholder image so that
+# domain mapping can be configured immediately. The first real
+# deploy from GitHub Actions will replace the placeholder.
+echo "==> Creating Cloud Run backend service..."
+if ! gcloud run services describe backend \
+  --project="$PROJECT_ID" --region="$REGION" --format="value(name)" >/dev/null 2>&1; then
+  gcloud run deploy backend \
+    --project="$PROJECT_ID" \
+    --image="us-docker.pkg.dev/cloudrun/container/hello" \
+    --region="$REGION" \
+    --platform=managed \
+    --allow-unauthenticated \
+    --set-env-vars="NODE_ENV=production" \
+    --quiet
+else
+  echo "   Cloud Run backend service already exists."
+fi
+
+# ─── API Domain (Cloud Run backend) ──────────────────────────
+if [ -n "$API_DOMAIN" ]; then
+  API_DNS_ZONE_NAME="api-dns-${ENV}"
+
+  echo "==> Creating Cloud DNS zone for ${API_DOMAIN}..."
+  gcloud dns managed-zones describe "$API_DNS_ZONE_NAME" \
+    --project="$PROJECT_ID" 2>/dev/null || \
+  gcloud dns managed-zones create "$API_DNS_ZONE_NAME" \
+    --project="$PROJECT_ID" \
+    --dns-name="${API_DOMAIN}." \
+    --description="API backend DNS (${ENV})"
+
+  # Cloud Run domain mapping uses Google's IPs for apex domains.
+  # CNAME is not allowed at zone apex, so we use A records instead.
+  # See: https://cloud.google.com/run/docs/mapping-custom-domains#dns_update
+  CLOUD_RUN_IPS="216.239.32.21,216.239.34.21,216.239.36.21,216.239.38.21"
+
+  echo "==> Creating A records for Cloud Run domain mapping..."
+  EXISTING_A=$(gcloud dns record-sets list \
+    --project="$PROJECT_ID" \
+    --zone="$API_DNS_ZONE_NAME" \
+    --name="${API_DOMAIN}." \
+    --type=A \
+    --format="value(name)" 2>/dev/null)
+
+  if [ -z "$EXISTING_A" ]; then
+    gcloud dns record-sets create "${API_DOMAIN}." \
+      --project="$PROJECT_ID" \
+      --zone="$API_DNS_ZONE_NAME" \
+      --type="A" \
+      --ttl=300 \
+      --rrdatas="$CLOUD_RUN_IPS"
+  else
+    echo "   A records already exist."
+  fi
+
+  echo "==> Creating Cloud Run domain mapping for ${API_DOMAIN}..."
+  gcloud beta run domain-mappings describe \
+    --project="$PROJECT_ID" \
+    --domain="$API_DOMAIN" \
+    --region="$REGION" 2>/dev/null || \
+  gcloud beta run domain-mappings create \
+    --project="$PROJECT_ID" \
+    --service=backend \
+    --domain="$API_DOMAIN" \
+    --region="$REGION"
+
+  API_NS=$(gcloud dns managed-zones describe "$API_DNS_ZONE_NAME" \
+    --project="$PROJECT_ID" --format="value(nameServers)")
+  echo ""
+  echo "   Update your domain registrar's NS records for ${API_DOMAIN} to:"
+  echo "   ${API_NS}" | tr ';' '\n' | sed 's/^/   /'
 fi
 
 # ─── Print GitHub Environment Variables ────────────────────────
@@ -276,6 +382,6 @@ echo "  WIF_SERVICE_ACCOUNT = ${SA_EMAIL}"
 echo "  GCS_BUCKET          = ${BUCKET}"
 echo "  CDN_URL_MAP         = ${URL_MAP_NAME}"
 echo "  CORS_ORIGIN         = https://${DOMAIN:-<your-${ENV}-frontend-domain>}"
-echo "  VITE_API_URL        = https://<your-backend-${ENV}-cloud-run-url>"
+echo "  VITE_API_URL        = https://${API_DOMAIN:-<your-backend-${ENV}-cloud-run-url>}"
 echo ""
 echo "Done (${ENV})!"
