@@ -53,6 +53,51 @@ IP_NAME="frontend-ip"
 
 echo "==> Setting up ${ENV} environment in project ${PROJECT_ID}"
 gcloud config set project "$PROJECT_ID"
+PROJECT_NUMBER=$(gcloud projects describe "$PROJECT_ID" --format="value(projectNumber)")
+
+# ─── Environment Tag ──────────────────────────────────────────
+# GCP recommends tagging projects with an 'environment' value.
+case "$ENV" in
+  staging)    TAG_VALUE="Staging" ;;
+  production) TAG_VALUE="Production" ;;
+esac
+
+echo "==> Tagging project with environment=${TAG_VALUE}..."
+TAG_KEY=$(gcloud resource-manager tags keys list \
+  --parent="projects/${PROJECT_ID}" \
+  --filter="shortName=environment" \
+  --format="value(name)" 2>/dev/null | head -1)
+
+if [ -z "$TAG_KEY" ]; then
+  TAG_KEY=$(gcloud resource-manager tags keys create environment \
+    --parent="projects/${PROJECT_ID}" \
+    --description="Environment type" \
+    --format="value(name)")
+fi
+
+TAG_VALUE_NAME=$(gcloud resource-manager tags values list \
+  --parent="$TAG_KEY" \
+  --filter="shortName=${TAG_VALUE}" \
+  --format="value(name)" 2>/dev/null | head -1)
+
+if [ -z "$TAG_VALUE_NAME" ]; then
+  TAG_VALUE_NAME=$(gcloud resource-manager tags values create "$TAG_VALUE" \
+    --parent="$TAG_KEY" \
+    --description="${TAG_VALUE} environment" \
+    --format="value(name)")
+fi
+
+EXISTING_BINDING=$(gcloud resource-manager tags bindings list \
+  --parent="//cloudresourcemanager.googleapis.com/projects/${PROJECT_NUMBER}" \
+  --location=global \
+  --format="value(tagValue)" 2>/dev/null | grep "${TAG_VALUE_NAME}" || true)
+
+if [ -z "$EXISTING_BINDING" ]; then
+  gcloud resource-manager tags bindings create \
+    --tag-value="$TAG_VALUE_NAME" \
+    --parent="//cloudresourcemanager.googleapis.com/projects/${PROJECT_NUMBER}" \
+    --location=global
+fi
 
 # ─── Enable APIs ──────────────────────────────────────────────
 echo "==> Enabling required APIs..."
@@ -78,7 +123,6 @@ gcloud artifacts repositories create "$AR_REPO" \
 
 # ─── Workload Identity Federation ──────────────────────────────
 echo "==> Setting up Workload Identity Federation..."
-PROJECT_NUMBER=$(gcloud projects describe "$PROJECT_ID" --format="value(projectNumber)")
 
 gcloud iam workload-identity-pools describe "$WIF_POOL" \
   --location="global" --format="value(name)" 2>/dev/null || \
