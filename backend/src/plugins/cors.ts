@@ -1,4 +1,5 @@
 import cors from "@fastify/cors";
+import type { FastifyInstance } from "fastify";
 import fp from "fastify-plugin";
 
 /**
@@ -8,7 +9,7 @@ import fp from "fastify-plugin";
  *
  * @see https://github.com/fastify/fastify-cors
  */
-export default fp(async (fastify) => {
+export default fp(async (fastify: FastifyInstance) => {
   const origin = process.env.CORS_ORIGIN || true;
   fastify.register(cors, {
     origin,
