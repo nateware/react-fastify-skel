@@ -1,0 +1,109 @@
+name: _Deploy Frontend
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        required: true
+        type: string
+      ref:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  TURBO_TELEMETRY_DISABLED: 1
+
+jobs:
+  # ──────────────────────────────────────────────────────────────
+  # SPA mode (default) — static assets to GCS + Cloud CDN
+  # ──────────────────────────────────────────────────────────────
+  deploy-spa:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: ".nvmrc"
+
+      - name: Install dependencies
+        run: rm package-lock.json && npm install
+
+      - name: Build frontend (SPA)
+        run: npm run build --workspace=frontend
+        env:
+          VITE_API_URL: ${{ vars.VITE_API_URL }}
+
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.WIF_PROVIDER }}
+          service_account: ${{ vars.WIF_SERVICE_ACCOUNT }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Sync assets to GCS (hashed files — long cache)
+        run: |
+          gsutil -m rsync -r -d \
+            -h "Cache-Control:public, max-age=31536000, immutable" \
+            frontend/build/client/assets/ \
+            gs://${{ vars.GCS_BUCKET }}/assets/
+
+      - name: Sync remaining files to GCS (short cache)
+        run: |
+          gsutil -m rsync -r -d \
+            -h "Cache-Control:public, max-age=60" \
+            -x "^assets/" \
+            frontend/build/client/ \
+            gs://${{ vars.GCS_BUCKET }}/
+
+      - name: Invalidate CDN cache
+        run: |
+          gcloud compute url-maps invalidate-cdn-cache ${{ vars.CDN_URL_MAP }} \
+            --path "/*" --async
+
+  # ──────────────────────────────────────────────────────────────
+  # SSR mode — uncomment this job and comment out deploy-spa
+  # when you switch to ssr: true in react-router.config.ts
+  # ──────────────────────────────────────────────────────────────
+  # deploy-ssr:
+  #   runs-on: ubuntu-latest
+  #   environment: ${{ inputs.environment }}
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #       with:
+  #         ref: ${{ inputs.ref }}
+  #
+  #     - id: auth
+  #       uses: google-github-actions/auth@v2
+  #       with:
+  #         workload_identity_provider: ${{ vars.WIF_PROVIDER }}
+  #         service_account: ${{ vars.WIF_SERVICE_ACCOUNT }}
+  #
+  #     - uses: google-github-actions/setup-gcloud@v2
+  #
+  #     - name: Configure Docker for Artifact Registry
+  #       run: gcloud auth configure-docker ${{ vars.GCP_REGION }}-docker.pkg.dev --quiet
+  #
+  #     - name: Build and push Docker image
+  #       run: |
+  #         IMAGE=${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/docker/frontend:${{ inputs.ref }}
+  #         docker build -f frontend/Dockerfile -t "$IMAGE" .
+  #         docker push "$IMAGE"
+  #
+  #     - name: Deploy to Cloud Run
+  #       run: |
+  #         IMAGE=${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/docker/frontend:${{ inputs.ref }}
+  #         gcloud run deploy frontend \
+  #           --image "$IMAGE" \
+  #           --region ${{ vars.GCP_REGION }} \
+  #           --platform managed \
+  #           --allow-unauthenticated \
+  #           --set-env-vars "NODE_ENV=production"

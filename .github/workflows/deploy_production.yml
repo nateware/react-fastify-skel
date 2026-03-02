@@ -1,0 +1,33 @@
+name: Deploy Production
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Git SHA to deploy"
+        required: false
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  deploy-backend:
+    uses: ./.github/workflows/_deploy_backend.yml
+    with:
+      environment: production
+      ref: ${{ inputs.ref || github.sha }}
+    secrets: inherit
+
+  deploy-frontend:
+    uses: ./.github/workflows/_deploy_frontend.yml
+    with:
+      environment: production
+      ref: ${{ inputs.ref || github.sha }}
+    secrets: inherit

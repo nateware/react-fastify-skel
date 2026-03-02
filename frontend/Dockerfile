@@ -21,4 +21,7 @@ COPY --from=pruner /app/out/json/ .
 RUN npm ci --omit=dev
 COPY --from=builder /app/frontend/build ./frontend/build
 WORKDIR /app/frontend
+# Cloud Run sets PORT; react-router-serve reads it automatically.
+# This Dockerfile is only used for SSR mode (ssr: true in react-router.config.ts).
+EXPOSE 8080
 CMD ["npm", "run", "start"]
