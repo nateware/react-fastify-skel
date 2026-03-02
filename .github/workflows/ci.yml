@@ -18,7 +18,11 @@ jobs:
           node-version-file: ".nvmrc"
           cache: npm
 
-      - run: npm install
+      # Lockfile generated on macOS lacks linux platform binaries
+      # for native deps (lightningcss, rollup, etc). Remove it so
+      # npm resolves the correct binaries for this runner.
+      # See: https://github.com/npm/cli/issues/4828
+      - run: rm package-lock.json && npm install
 
       - run: npm run lint
       - run: npm run typecheck
