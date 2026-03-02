@@ -16,13 +16,13 @@
 set -euo pipefail
 
 # ─── Configuration (edit these) ───────────────────────────────
-PROJECT_ID_STAGING="your-staging-project-id"
-PROJECT_ID_PRODUCTION="your-production-project-id"
+PROJECT_ID_STAGING="react-fastify-skel-staging"         # must be globally unique
+PROJECT_ID_PRODUCTION="react-fastify-skel-production"   # must be globally unique
 REGION="us-central1"
-GITHUB_ORG="your-github-org"    # or personal username
+GITHUB_ORG="nateware"    # or personal username
 GITHUB_REPO="react-fastify-skel"
-DOMAIN_STAGING=""                # optional: e.g. staging.myapp.example.com
-DOMAIN_PRODUCTION=""             # optional: e.g. myapp.example.com
+DOMAIN_STAGING="app.staging.nojungle.com"      # optional: e.g. staging.myapp.example.com
+DOMAIN_PRODUCTION="app.nojungle.com"           # optional: e.g. myapp.example.com
 # ──────────────────────────────────────────────────────────────
 
 ENV="${1:?Usage: $0 <staging|production>}"
@@ -64,7 +64,8 @@ gcloud services enable \
   iam.googleapis.com \
   iamcredentials.googleapis.com \
   cloudresourcemanager.googleapis.com \
-  secretmanager.googleapis.com
+  secretmanager.googleapis.com \
+  dns.googleapis.com
 
 # ─── Artifact Registry ────────────────────────────────────────
 echo "==> Creating Artifact Registry repository..."
@@ -169,9 +170,44 @@ if [ -n "$DOMAIN" ]; then
     --ports=443
 
   STATIC_IP=$(gcloud compute addresses describe "$IP_NAME" --global --format="value(address)")
+
+  # ─── Cloud DNS ────────────────────────────────────────────
+  DNS_ZONE_NAME="frontend-dns-${ENV}"
+
+  echo "==> Creating Cloud DNS zone for ${DOMAIN}..."
+  gcloud dns managed-zones describe "$DNS_ZONE_NAME" 2>/dev/null || \
+  gcloud dns managed-zones create "$DNS_ZONE_NAME" \
+    --dns-name="${DOMAIN}." \
+    --description="Frontend DNS (${ENV})"
+
+  echo "==> Creating A record pointing to load balancer..."
+  EXISTING_A=$(gcloud dns record-sets list \
+    --zone="$DNS_ZONE_NAME" \
+    --name="${DOMAIN}." \
+    --type=A \
+    --format="value(name)" 2>/dev/null)
+
+  if [ -z "$EXISTING_A" ]; then
+    gcloud dns record-sets create "${DOMAIN}." \
+      --zone="$DNS_ZONE_NAME" \
+      --type="A" \
+      --ttl=300 \
+      --rrdatas="$STATIC_IP"
+  else
+    echo "   A record already exists, updating..."
+    gcloud dns record-sets update "${DOMAIN}." \
+      --zone="$DNS_ZONE_NAME" \
+      --type="A" \
+      --ttl=300 \
+      --rrdatas="$STATIC_IP"
+  fi
+
+  NAMESERVERS=$(gcloud dns managed-zones describe "$DNS_ZONE_NAME" --format="value(nameServers)")
   echo ""
   echo "   Static IP: ${STATIC_IP}"
-  echo "   Point your DNS A record for ${DOMAIN} to ${STATIC_IP}"
+  echo ""
+  echo "   Update your domain registrar's nameservers to:"
+  echo "   ${NAMESERVERS}" | tr ';' '\n' | sed 's/^/   /'
 else
   echo "   (No DOMAIN_$(echo "$ENV" | tr '[:lower:]' '[:upper:]') set — skipping HTTPS proxy.)"
   echo "   Set it in this script and re-run to create SSL + LB."
