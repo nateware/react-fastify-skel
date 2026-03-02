@@ -142,9 +142,12 @@ gcloud iam workload-identity-pools providers create-oidc "$WIF_PROVIDER" \
 
 # ─── Service Account ──────────────────────────────────────────
 echo "==> Creating service account..."
-gcloud iam service-accounts describe "$SA_EMAIL" 2>/dev/null || \
-gcloud iam service-accounts create "$SA_NAME" \
-  --display-name="GitHub Actions Deploy"
+if ! gcloud iam service-accounts describe "$SA_EMAIL" --format="value(email)" >/dev/null 2>&1; then
+  gcloud iam service-accounts create "$SA_NAME" \
+    --display-name="GitHub Actions Deploy"
+  echo "   Waiting for service account to propagate..."
+  sleep 10
+fi
 
 echo "==> Granting roles to service account..."
 for ROLE in \
