@@ -92,30 +92,27 @@ Frontend serves on port 3000, backend on port 3001.
 
 | Environment | Trigger | Backend | Frontend |
 |---|---|---|---|
-| **staging** | Auto on push to `main` (after CI passes) | Cloud Run (`backend-staging`) | GCS bucket + CDN |
-| **production** | GitHub release published | Cloud Run (`backend-production`) | GCS bucket + CDN |
+| **staging** | Auto on push to `main` (after CI passes) | Cloud Run (`backend`) | GCS bucket + CDN |
+| **production** | GitHub release published | Cloud Run (`backend`) | GCS bucket + CDN |
+
+Each environment uses a separate GCP project for full isolation.
 
 Manual deploys are available via `workflow_dispatch` on any workflow.
 
 ### Initial Setup
 
 ```bash
-# 1. Edit configuration variables in the script
+# 1. Edit configuration variables in the script (project IDs, region, GitHub org)
 vi scripts/gcp_setup.sh
 
-# 2. Create shared resources (Artifact Registry, WIF, service account)
-./scripts/gcp_setup.sh init
-
-# 3. Create per-environment resources (GCS bucket, CDN, load balancer)
+# 2. Set up each environment (separate GCP projects)
 ./scripts/gcp_setup.sh staging
 ./scripts/gcp_setup.sh production
 ```
 
-After each step, configure the printed values as GitHub Variables:
-- **Repository variables** (shared): `GCP_PROJECT_ID`, `GCP_REGION`, `WIF_PROVIDER`, `WIF_SERVICE_ACCOUNT`
-- **Environment variables** (per env): `CORS_ORIGIN`, `VITE_API_URL`, `GCS_BUCKET`, `CDN_URL_MAP`
-
-Set these at: Repo → Settings → Secrets and variables → Actions → Variables (repo-level) and Settings → Environments → `<env>` → Add variable (env-level).
+After each run, configure the printed values as GitHub Environment Variables:
+- Go to: Repo → Settings → Environments → `<env>` → Add variable
+- Variables: `GCP_PROJECT_ID`, `GCP_REGION`, `WIF_PROVIDER`, `WIF_SERVICE_ACCOUNT`, `CORS_ORIGIN`, `VITE_API_URL`, `GCS_BUCKET`, `CDN_URL_MAP`
 
 ### Deploy Flow
 

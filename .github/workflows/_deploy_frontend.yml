@@ -101,7 +101,7 @@ jobs:
   #     - name: Deploy to Cloud Run
   #       run: |
   #         IMAGE=${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/docker/frontend:${{ inputs.ref }}
-  #         gcloud run deploy frontend-${{ inputs.environment }} \
+  #         gcloud run deploy frontend \
   #           --image "$IMAGE" \
   #           --region ${{ vars.GCP_REGION }} \
   #           --platform managed \
