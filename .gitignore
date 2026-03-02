@@ -1,3 +1,4 @@
+.claude
 # Logs
 logs
 *.log
@@ -133,6 +134,9 @@ dist
 !.yarn/releases
 !.yarn/sdks
 !.yarn/versions
+
+# Turbo
+.turbo
 
 # Vite logs files
 vite.config.js.timestamp-*

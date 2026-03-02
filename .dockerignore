@@ -1,0 +1,10 @@
+node_modules
+.turbo
+**/node_modules
+**/.turbo
+frontend/build
+frontend/.react-router
+backend/dist
+*.md
+.git
+.husky

@@ -1,0 +1,36 @@
+{
+  "name": "react-fastify-skel",
+  "private": true,
+  "type": "module",
+  "packageManager": "npm@11.8.0",
+  "workspaces": [
+    "frontend",
+    "backend"
+  ],
+  "scripts": {
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "test": "turbo run test",
+    "typecheck": "turbo run typecheck",
+    "lint": "turbo run lint",
+    "lint:fix": "turbo run lint:fix",
+    "format": "biome format --write .",
+    "format:check": "biome format .",
+    "clean": "turbo run clean && rm -rf node_modules .turbo",
+    "prepare": "husky"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.1.0",
+    "husky": "^9.1.0",
+    "lint-staged": "^16.1.0",
+    "turbo": "^2.5.0"
+  },
+  "lint-staged": {
+    "*.{js,ts,jsx,tsx,json,css}": [
+      "biome check --write --no-errors-on-unmatched"
+    ]
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
