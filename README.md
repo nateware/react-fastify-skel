@@ -4,12 +4,13 @@ A monorepo skeleton for building full-stack apps with React and Fastify.
 
 ## Tech Stack
 
-- **Frontend** — React 19, React Router v7 (SSR), Vite, TailwindCSS, TypeScript
+- **Frontend** — React 19, React Router v7 (SPA), Vite, TailwindCSS, TypeScript
 - **Backend** — Fastify v5, TypeScript, ESM
 - **Monorepo** — Turborepo, npm workspaces
 - **Testing** — Vitest, Testing Library
 - **Linting** — Biome
 - **Containers** — Docker with turbo prune, docker-compose
+- **Deploy** — GCP (Cloud Run, GCS + CDN), GitHub Actions, staging + production
 
 ## Getting Started
 
@@ -85,10 +86,60 @@ Frontend serves on port 3000, backend on port 3001.
 └── docker-compose.yml
 ```
 
+## GCP Deployment
+
+### Environments
+
+| Environment | Trigger | Backend | Frontend |
+|---|---|---|---|
+| **staging** | Auto on push to `main` (after CI passes) | Cloud Run (`backend-staging`) | GCS bucket + CDN |
+| **production** | GitHub release published | Cloud Run (`backend-production`) | GCS bucket + CDN |
+
+Manual deploys are available via `workflow_dispatch` on any workflow.
+
+### Initial Setup
+
+```bash
+# 1. Edit configuration variables in the script
+vi scripts/gcp_setup.sh
+
+# 2. Create shared resources (Artifact Registry, WIF, service account)
+./scripts/gcp_setup.sh init
+
+# 3. Create per-environment resources (GCS bucket, CDN, load balancer)
+./scripts/gcp_setup.sh staging
+./scripts/gcp_setup.sh production
+```
+
+After each step, configure the printed values as GitHub Variables:
+- **Repository variables** (shared): `GCP_PROJECT_ID`, `GCP_REGION`, `WIF_PROVIDER`, `WIF_SERVICE_ACCOUNT`
+- **Environment variables** (per env): `CORS_ORIGIN`, `VITE_API_URL`, `GCS_BUCKET`, `CDN_URL_MAP`
+
+Set these at: Repo → Settings → Secrets and variables → Actions → Variables (repo-level) and Settings → Environments → `<env>` → Add variable (env-level).
+
+### Deploy Flow
+
+```
+Push to main → CI (lint, test, build) → Staging auto-deploy
+                                           ↓
+                              Verify staging looks good
+                                           ↓
+                              Create GitHub release → Production deploy
+```
+
+### SPA vs SSR
+
+The frontend defaults to SPA mode (`ssr: false`), serving static files from GCS + CDN.
+
+To switch to SSR mode:
+1. Set `ssr: true` in `frontend/react-router.config.ts`
+2. In `.github/workflows/_deploy_frontend.yml`, comment out the `deploy-spa` job and uncomment `deploy-ssr`
+
 ## Using as a Template
 
 1. Clone or fork this repo
 2. Update `name` in root `package.json`, `frontend/package.json`, and `backend/package.json`
 3. Replace the example routes in `frontend/app/routes/` and `backend/src/routes/`
 4. Update `.env.example` files with your environment variables
-5. Run `npm install` and `npm run dev`
+5. Edit `scripts/gcp_setup.sh` with your GCP project details
+6. Run `npm install` and `npm run dev`

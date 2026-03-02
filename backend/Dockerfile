@@ -21,5 +21,7 @@ COPY --from=pruner /app/out/json/ .
 RUN npm ci --omit=dev
 COPY --from=builder /app/backend/dist ./backend/dist
 WORKDIR /app/backend
-EXPOSE 3001
+# Cloud Run sets PORT dynamically; fastify-cli reads it automatically.
+# Do NOT set FASTIFY_PORT — it would override Cloud Run's PORT.
+EXPOSE 8080
 CMD ["npm", "run", "start"]

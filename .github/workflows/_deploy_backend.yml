@@ -1,0 +1,54 @@
+name: _Deploy Backend
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        required: true
+        type: string
+      ref:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  TURBO_TELEMETRY_DISABLED: 1
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.WIF_PROVIDER }}
+          service_account: ${{ vars.WIF_SERVICE_ACCOUNT }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker ${{ vars.GCP_REGION }}-docker.pkg.dev --quiet
+
+      - name: Build and push Docker image
+        run: |
+          IMAGE=${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/docker/backend:${{ inputs.ref }}
+          docker build -f backend/Dockerfile -t "$IMAGE" .
+          docker push "$IMAGE"
+
+      - name: Deploy to Cloud Run
+        run: |
+          IMAGE=${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/docker/backend:${{ inputs.ref }}
+          gcloud run deploy backend-${{ inputs.environment }} \
+            --image "$IMAGE" \
+            --region ${{ vars.GCP_REGION }} \
+            --platform managed \
+            --allow-unauthenticated \
+            --set-env-vars "NODE_ENV=production,CORS_ORIGIN=${{ vars.CORS_ORIGIN }}"
