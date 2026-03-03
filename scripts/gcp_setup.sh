@@ -324,7 +324,7 @@ if ! gcloud sql instances describe "$SQL_INSTANCE" \
   --project="$PROJECT_ID" --format="value(name)" >/dev/null 2>&1; then
   gcloud sql instances create "$SQL_INSTANCE" \
     --project="$PROJECT_ID" \
-    --database-version=POSTGRES_17 \
+    --database-version=POSTGRES_18 \
     --edition=ENTERPRISE \
     --tier="$SQL_TIER" \
     --region="$REGION" \

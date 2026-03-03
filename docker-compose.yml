@@ -1,6 +1,6 @@
 services:
   postgres:
-    image: postgres:17-alpine
+    image: postgres:18-alpine
     ports:
       - "5432:5432"
     environment:
@@ -9,6 +9,11 @@ services:
       POSTGRES_DB: app
     volumes:
       - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U devuser -d app"]
+      interval: 2s
+      timeout: 5s
+      retries: 10
 
   frontend:
     build:
@@ -22,6 +27,17 @@ services:
     depends_on:
       - backend
 
+  migrate:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    command: ["node", "dist/db/migrate.js"]
+    environment:
+      - DATABASE_URL=postgresql://devuser:devpass@postgres:5432/app
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   backend:
     build:
       context: .
@@ -34,7 +50,8 @@ services:
       - FASTIFY_ADDRESS=0.0.0.0
       - DATABASE_URL=postgresql://devuser:devpass@postgres:5432/app
     depends_on:
-      - postgres
+      migrate:
+        condition: service_completed_successfully
 
 volumes:
   pgdata:
