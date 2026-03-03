@@ -49,6 +49,7 @@ jobs:
           gcloud run jobs deploy migrate \
             --image "$IMAGE" \
             --region ${{ vars.GCP_REGION }} \
+            --service-account ${{ vars.CLOUD_RUN_SERVICE_ACCOUNT }} \
             --set-env-vars "CLOUDSQL_CONNECTION=${{ vars.CLOUDSQL_CONNECTION }},DB_IAM_USER=${{ vars.DB_IAM_USER }},DB_NAME=${{ vars.DB_NAME }}" \
             --command "node" \
             --args "dist/db/migrate.js" \
