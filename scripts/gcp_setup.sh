@@ -399,6 +399,9 @@ PGPASSWORD="$POSTGRES_PASSWORD" psql \
 GRANT ALL PRIVILEGES ON SCHEMA public TO "${IAM_DB_USER}";
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO "${IAM_DB_USER}";
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO "${IAM_DB_USER}";
+CREATE SCHEMA IF NOT EXISTS drizzle;
+GRANT ALL PRIVILEGES ON SCHEMA drizzle TO "${IAM_DB_USER}";
+ALTER DEFAULT PRIVILEGES IN SCHEMA drizzle GRANT ALL ON TABLES TO "${IAM_DB_USER}";
 EOSQL
 
 kill "$PROXY_PID" 2>/dev/null
@@ -477,7 +480,12 @@ echo "  CDN_URL_MAP         = ${URL_MAP_NAME}"
 echo "  CLOUDSQL_CONNECTION = ${CLOUDSQL_CONNECTION}"
 echo "  DB_IAM_USER         = ${IAM_DB_USER}"
 echo "  DB_NAME             = ${SQL_DB}"
+echo "  CLOUD_RUN_SERVICE_ACCOUNT = ${SA_EMAIL}"
 echo "  CORS_ORIGIN         = https://${DOMAIN:-<your-${ENV}-frontend-domain>}"
 echo "  VITE_API_URL        = https://${API_DOMAIN:-<your-backend-${ENV}-cloud-run-url>}"
+echo ""
+echo " GitHub Secrets (Settings → Environments → ${ENV} → Add secret):"
+echo ""
+echo "  POSTGRES_PASSWORD   = ${POSTGRES_PASSWORD}"
 echo ""
 echo "Done (${ENV})!"
