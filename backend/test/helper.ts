@@ -1,23 +1,11 @@
-import path from "node:path";
-import { fileURLToPath } from "node:url";
-import type { FastifyInstance } from "fastify";
-import { build as buildApplication } from "fastify-cli/helper.js";
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-const AppPath = path.join(__dirname, "..", "src", "app.ts");
-
-function config() {
-  return {
-    skipOverride: true,
-  };
-}
+import Fastify, { type FastifyInstance } from "fastify";
+import app from "../src/app.js";
 
 async function build(): Promise<FastifyInstance> {
-  const argv = [AppPath];
-  const app = await buildApplication(argv, config());
-  return app;
+  const fastify = Fastify({ logger: false });
+  await fastify.register(app);
+  await fastify.ready();
+  return fastify;
 }
 
-export { config, build };
+export { build };

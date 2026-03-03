@@ -1,4 +1,4 @@
-name: _Deploy Backend
+name: _Migrate Database
 
 on:
   workflow_call:
@@ -18,7 +18,7 @@ env:
   TURBO_TELEMETRY_DISABLED: 1
 
 jobs:
-  deploy:
+  migrate:
     runs-on: ubuntu-latest
     environment: ${{ inputs.environment }}
     steps:
@@ -43,27 +43,14 @@ jobs:
           docker build -f backend/Dockerfile -t "$IMAGE" .
           docker push "$IMAGE"
 
-      - name: Deploy to Cloud Run
+      - name: Run database migration
         run: |
           IMAGE=${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/docker/backend:${{ inputs.ref }}
-          gcloud run deploy backend \
+          gcloud run jobs deploy migrate \
             --image "$IMAGE" \
             --region ${{ vars.GCP_REGION }} \
-            --platform managed \
-            --allow-unauthenticated \
-            --set-env-vars "\
-          NODE_ENV=production,\
-          CORS_ORIGIN=${{ vars.CORS_ORIGIN }},\
-          CLOUDSQL_CONNECTION=${{ vars.CLOUDSQL_CONNECTION }},\
-          DB_IAM_USER=${{ vars.DB_IAM_USER }},\
-          DB_NAME=${{ vars.DB_NAME }},\
-          JWT_SECRET=${{ secrets.JWT_SECRET }},\
-          GOOGLE_CLIENT_ID=${{ secrets.GOOGLE_CLIENT_ID }},\
-          GOOGLE_CLIENT_SECRET=${{ secrets.GOOGLE_CLIENT_SECRET }},\
-          GOOGLE_REDIRECT_URI=${{ vars.GOOGLE_REDIRECT_URI }},\
-          APPLE_CLIENT_ID=${{ secrets.APPLE_CLIENT_ID }},\
-          APPLE_TEAM_ID=${{ secrets.APPLE_TEAM_ID }},\
-          APPLE_KEY_ID=${{ secrets.APPLE_KEY_ID }},\
-          APPLE_PRIVATE_KEY=${{ secrets.APPLE_PRIVATE_KEY }},\
-          APPLE_REDIRECT_URI=${{ vars.APPLE_REDIRECT_URI }},\
-          FRONTEND_URL=${{ vars.FRONTEND_URL }}"
+            --set-env-vars "CLOUDSQL_CONNECTION=${{ vars.CLOUDSQL_CONNECTION }},DB_IAM_USER=${{ vars.DB_IAM_USER }},DB_NAME=${{ vars.DB_NAME }}" \
+            --command "node" \
+            --args "dist/db/migrate.js" \
+            --execute-now \
+            --wait

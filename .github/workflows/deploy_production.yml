@@ -18,7 +18,15 @@ permissions:
   id-token: write
 
 jobs:
+  migrate:
+    uses: ./.github/workflows/_migrate.yml
+    with:
+      environment: production
+      ref: ${{ inputs.ref || github.sha }}
+    secrets: inherit
+
   deploy-backend:
+    needs: [migrate]
     uses: ./.github/workflows/_deploy_backend.yml
     with:
       environment: production
@@ -26,6 +34,7 @@ jobs:
     secrets: inherit
 
   deploy-frontend:
+    needs: [migrate]
     uses: ./.github/workflows/_deploy_frontend.yml
     with:
       environment: production

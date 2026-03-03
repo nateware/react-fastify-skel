@@ -20,7 +20,18 @@ permissions:
   id-token: write
 
 jobs:
+  migrate:
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success'
+    uses: ./.github/workflows/_migrate.yml
+    with:
+      environment: staging
+      ref: ${{ inputs.ref || github.event.workflow_run.head_sha }}
+    secrets: inherit
+
   deploy-backend:
+    needs: [migrate]
     if: >
       github.event_name == 'workflow_dispatch' ||
       github.event.workflow_run.conclusion == 'success'
@@ -31,6 +42,7 @@ jobs:
     secrets: inherit
 
   deploy-frontend:
+    needs: [migrate]
     if: >
       github.event_name == 'workflow_dispatch' ||
       github.event.workflow_run.conclusion == 'success'
