@@ -334,7 +334,11 @@ if ! gcloud sql instances describe "$SQL_INSTANCE" \
     --database-flags=cloudsql.iam_authentication=on \
     --quiet
 else
-  echo "   Cloud SQL instance already exists."
+  echo "   Cloud SQL instance already exists. Ensuring IAM auth flag is enabled..."
+  gcloud sql instances patch "$SQL_INSTANCE" \
+    --project="$PROJECT_ID" \
+    --database-flags=cloudsql.iam_authentication=on \
+    --quiet
 fi
 
 CLOUDSQL_CONNECTION="${PROJECT_ID}:${REGION}:${SQL_INSTANCE}"
