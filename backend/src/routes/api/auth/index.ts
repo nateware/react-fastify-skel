@@ -3,8 +3,12 @@ import type { FastifyPluginAsync } from "fastify";
 import { users } from "../../../db/schema.js";
 import { verifyJwt } from "../../../lib/auth-config.js";
 import { AUTH_COOKIE_NAME, sessionCookieOptions } from "../../../lib/cookie-utils.js";
+import appleRoutes from "./apple.js";
+import googleRoutes from "./google.js";
 
 const authRoutes: FastifyPluginAsync = async (fastify) => {
+  fastify.register(googleRoutes, { prefix: "/google" });
+  fastify.register(appleRoutes, { prefix: "/apple" });
   // GET /api/auth/me — return current user or 401
   fastify.get("/me", async (request, reply) => {
     const token = request.cookies[AUTH_COOKIE_NAME];
