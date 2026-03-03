@@ -1,6 +1,7 @@
 # react-fastify-skel
 
 A monorepo skeleton for building full-stack apps with React and Fastify.
+Setup to use Postgres as a DB and deploy to Google Cloud (GCP).
 
 ## Tech Stack
 
