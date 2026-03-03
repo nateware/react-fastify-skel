@@ -1,6 +1,3 @@
-// Side-effect import so TypeScript picks up @fastify/cookie's
-// declaration merging for .cookies, .setCookie, .clearCookie on Fastify types.
-import "@fastify/cookie";
 import type { CookieSerializeOptions } from "@fastify/cookie";
 
 const isProduction = () => process.env.NODE_ENV === "production";

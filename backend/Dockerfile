@@ -1,8 +1,9 @@
 FROM node:22-alpine AS pruner
-RUN npm install -g turbo@^2
 WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm install --ignore-scripts turbo
 COPY . .
-RUN turbo prune backend --docker
+RUN npx turbo prune backend --docker
 
 FROM node:22-alpine AS installer
 WORKDIR /app
