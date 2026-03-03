@@ -13,5 +13,6 @@ export default fp(async (fastify: FastifyInstance) => {
   const origin = process.env.CORS_ORIGIN || true;
   fastify.register(cors, {
     origin,
+    credentials: true,
   });
 });

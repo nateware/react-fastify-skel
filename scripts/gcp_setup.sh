@@ -25,6 +25,9 @@ DOMAIN_STAGING="app.staging.nojungle.com"      # optional: e.g. staging.myapp.ex
 DOMAIN_PRODUCTION="app.nojungle.com"           # optional: e.g. myapp.example.com
 API_DOMAIN_STAGING="api.staging.nojungle.com"  # optional: custom domain for Cloud Run backend
 API_DOMAIN_PRODUCTION="api.nojungle.com"       # optional: custom domain for Cloud Run backend
+SQL_INSTANCE="postgres"                        # Cloud SQL instance name
+SQL_DB="app"                                   # database name
+SQL_TIER="db-f1-micro"                         # smallest; resize via console later
 # ──────────────────────────────────────────────────────────────
 
 ENV="${1:?Usage: $0 <staging|production>}"
@@ -42,7 +45,7 @@ DOMAIN="${!DOMAIN_VAR}"
 API_DOMAIN_VAR="API_DOMAIN_$(echo "$ENV" | tr '[:lower:]' '[:upper:]')"
 API_DOMAIN="${!API_DOMAIN_VAR}"
 
-SA_NAME="github-deploy"
+SA_NAME="deploy"
 SA_EMAIL="${SA_NAME}@${PROJECT_ID}.iam.gserviceaccount.com"
 WIF_POOL="github-pool"
 WIF_PROVIDER="github-provider"
@@ -115,7 +118,8 @@ gcloud services enable \
   iamcredentials.googleapis.com \
   cloudresourcemanager.googleapis.com \
   secretmanager.googleapis.com \
-  dns.googleapis.com
+  dns.googleapis.com \
+  sqladmin.googleapis.com
 
 # ─── Artifact Registry ────────────────────────────────────────
 echo "==> Creating Artifact Registry repository..."
@@ -167,7 +171,9 @@ for ROLE in \
   roles/run.admin \
   roles/artifactregistry.writer \
   roles/storage.admin \
-  roles/iam.serviceAccountUser; do
+  roles/iam.serviceAccountUser \
+  roles/cloudsql.client \
+  roles/cloudsql.instanceUser; do
   gcloud projects add-iam-policy-binding "$PROJECT_ID" \
     --member="serviceAccount:${SA_EMAIL}" \
     --role="$ROLE" \
@@ -312,6 +318,93 @@ else
   echo "   Cloud Run backend service already exists."
 fi
 
+# ─── Cloud SQL (PostgreSQL Enterprise) ────────────────────────
+echo "==> Creating Cloud SQL instance (this may take several minutes)..."
+if ! gcloud sql instances describe "$SQL_INSTANCE" \
+  --project="$PROJECT_ID" --format="value(name)" >/dev/null 2>&1; then
+  gcloud sql instances create "$SQL_INSTANCE" \
+    --project="$PROJECT_ID" \
+    --database-version=POSTGRES_17 \
+    --edition=ENTERPRISE \
+    --tier="$SQL_TIER" \
+    --region="$REGION" \
+    --storage-type=SSD \
+    --storage-size=10 \
+    --availability-type=zonal \
+    --database-flags=cloudsql.iam_authentication=on \
+    --quiet
+else
+  echo "   Cloud SQL instance already exists. Ensuring IAM auth flag is enabled..."
+  gcloud sql instances patch "$SQL_INSTANCE" \
+    --project="$PROJECT_ID" \
+    --database-flags=cloudsql.iam_authentication=on \
+    --quiet
+fi
+
+CLOUDSQL_CONNECTION="${PROJECT_ID}:${REGION}:${SQL_INSTANCE}"
+
+echo "==> Creating database..."
+gcloud sql databases describe "$SQL_DB" \
+  --instance="$SQL_INSTANCE" \
+  --project="$PROJECT_ID" --format="value(name)" 2>/dev/null || \
+gcloud sql databases create "$SQL_DB" \
+  --instance="$SQL_INSTANCE" \
+  --project="$PROJECT_ID"
+
+# ─── IAM Database User ───────────────────────────────────────
+# Use IAM authentication — no passwords to manage.
+# The service account authenticates directly via Cloud SQL Connector.
+IAM_DB_USER="${SA_EMAIL%.gserviceaccount.com}"
+
+echo "==> Creating IAM database user for ${IAM_DB_USER}..."
+EXISTING_IAM_USER=$(gcloud sql users list \
+  --instance="$SQL_INSTANCE" \
+  --project="$PROJECT_ID" \
+  --filter="name=${IAM_DB_USER}" \
+  --format="value(name)" 2>/dev/null)
+
+if [ -z "$EXISTING_IAM_USER" ]; then
+  gcloud sql users create "$IAM_DB_USER" \
+    --instance="$SQL_INSTANCE" \
+    --project="$PROJECT_ID" \
+    --type=CLOUD_IAM_SERVICE_ACCOUNT
+else
+  echo "   IAM user already exists."
+fi
+
+# Grant schema privileges to the IAM user.
+# Requires psql (brew install libpq / apt install postgresql-client).
+echo "==> Granting database privileges to IAM user..."
+POSTGRES_PASSWORD=$(openssl rand -base64 24)
+gcloud sql users set-password postgres \
+  --instance="$SQL_INSTANCE" \
+  --project="$PROJECT_ID" \
+  --password="$POSTGRES_PASSWORD" \
+  --quiet
+
+# Run the Cloud SQL proxy directly so we can call psql with PGPASSWORD.
+# gcloud sql connect doesn't forward env vars to its child psql process.
+# Pass --token so the proxy uses gcloud's auth (not Application Default Credentials).
+PROXY_PORT=15432
+PROXY_BIN="$(gcloud info --format='value(installation.sdk_root)')/bin/cloud-sql-proxy"
+ACCESS_TOKEN="$(gcloud auth print-access-token)"
+
+echo "   Starting Cloud SQL proxy..."
+"$PROXY_BIN" "${CLOUDSQL_CONNECTION}" --port "$PROXY_PORT" --token "$ACCESS_TOKEN" --quiet &
+PROXY_PID=$!
+sleep 3
+
+PGPASSWORD="$POSTGRES_PASSWORD" psql \
+  -h 127.0.0.1 -p "$PROXY_PORT" -U postgres -d "$SQL_DB" <<EOSQL
+GRANT ALL PRIVILEGES ON SCHEMA public TO "${IAM_DB_USER}";
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO "${IAM_DB_USER}";
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO "${IAM_DB_USER}";
+EOSQL
+
+kill "$PROXY_PID" 2>/dev/null
+wait "$PROXY_PID" 2>/dev/null
+echo "   Privileges granted."
+
 # ─── API Domain (Cloud Run backend) ──────────────────────────
 if [ -n "$API_DOMAIN" ]; then
   API_DNS_ZONE_NAME="api-dns-${ENV}"
@@ -381,6 +474,9 @@ echo "  WIF_PROVIDER        = ${WIF_PROVIDER_FULL}"
 echo "  WIF_SERVICE_ACCOUNT = ${SA_EMAIL}"
 echo "  GCS_BUCKET          = ${BUCKET}"
 echo "  CDN_URL_MAP         = ${URL_MAP_NAME}"
+echo "  CLOUDSQL_CONNECTION = ${CLOUDSQL_CONNECTION}"
+echo "  DB_IAM_USER         = ${IAM_DB_USER}"
+echo "  DB_NAME             = ${SQL_DB}"
 echo "  CORS_ORIGIN         = https://${DOMAIN:-<your-${ENV}-frontend-domain>}"
 echo "  VITE_API_URL        = https://${API_DOMAIN:-<your-backend-${ENV}-cloud-run-url>}"
 echo ""
