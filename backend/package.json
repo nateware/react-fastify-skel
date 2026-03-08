@@ -31,7 +31,7 @@
     "@google-cloud/cloud-sql-connector": "^1.9.1",
     "arctic": "^3.7.0",
     "drizzle-orm": "^0.45.1",
-    "fastify": "^5.0.0",
+    "fastify": "^5.8.1",
     "fastify-cli": "^7.4.1",
     "fastify-plugin": "^5.0.0",
     "jose": "^6.1.3",
